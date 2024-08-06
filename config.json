@@ -1,0 +1,13 @@
+{
+    "DESIGN_NAME": "puf_serial",
+    "VERILOG_FILES": ["dir::LFSR_8bit.sv",
+                      "dir::mux_16to1.sv",
+                      "dir::post_mux_counter.sv",
+                      "dir::race_arbiter.sv",
+                      "dir::ring_osc.sv",
+                      "dir::scrambler_lfsr.sv",
+                      "dir::smart_buffer.sv",
+                      "dir::puf_serial.sv"],
+    "CLOCK_PERIOD": 25,
+    "CLOCK_PORT": "clock"
+  }

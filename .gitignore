@@ -1,0 +1,11 @@
+*.rpt
+*.done
+*.smsg
+db
+incremental_db
+*.summary
+*.jdi
+*.sof
+*.sld
+*.qws
+*.htm
