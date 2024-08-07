@@ -92,39 +92,120 @@ localparam logic [3:0] Fifhteen  = 4'b1111;
 //=======================================================
 
 // Inputs
-wire [7:0] challenge;
 wire [31:0] enables;
-wire rst;
+wire fsm_rst; // reset for FSM
+wire sc1_rst; // reset for PUF 1
+wire sc2_rst; // reset for PUF 2
 
 // Outputs
-wire [7:0] response;
-wire [7:0] done;
+wire [7:0] response1;
+wire [7:0] response2;
+wire [7:0] done1;
+wire [7:0] done2;
 
 
 //=======================================================
 //  Structural coding
 //=======================================================
 
-// Use SW as PUF challenge
-assign challenge = {SW[3], SW[2], SW[1], SW[0], ~SW[3], ~SW[2], ~SW[1], ~SW[0] };
-
-// Use LED as PUF response
-assign LED = response;
-
 // Use KEYs as PUF enable and reset
 assign enables = {32{~KEY[0]}};
-assign rst = KEY[1];
+assign fsm_rst = ~KEY[1] && ~KEY[0];
 
 //Instantiate the PUF module
 
- puf_serial serial_scheme (
+ puf_serial serial_scheme1 (
         .enable (enables),
-        .challenge (challenge),
-        .response (response),
-        .done (done),
+        .challenge (sc1_counter),
+        .response (response1),
+        .done (done1),
         .clock (CLOCK_50),
-        .reset (rst)
+        .reset (sc1_rst)
         );
+
+ puf_serial serial_scheme2 (
+        .enable (enables),
+        .challenge (sc2_counter),
+        .response (response2),
+        .done (done2),
+        .clock (CLOCK_50),
+        .reset (sc2_rst)
+        );
+
+//Create an FSM to view the results of both PUF
+
+typedef enum logic [1:0] { RESET, SC1, SC2, HALT } state_t;
+
+state_t ps;  //present state
+state_t ns;  //next state
+
+//Arcs
+
+logic arc_rst_sc1;
+logic arc_sc1_sc2;
+logic arc_sc2_sc1;
+logic arc_sc2_halt;
+logic arc_halt_rst;
+
+assign arc_rst_sc1 = ((ps == RESET) && ~KEY[0]);
+assign arc_sc1_sc2   = ((ps == SC1) && ~KEY[1]);
+assign arc_sc2_sc1   = ((ps == RESET) && ~KEY[0]);
+assign arc_sc2_halt  = ((ps == SC2)) && (sc2_counter == 4'b1111);
+assign arc_halt_rst = ((ps == HALT) && (fsm_rst));
+
+//Next state logic
+
+always_comb begin : next_state_calc
+    unique case (ps)
+        RESET: begin
+            if (arc_rst_sc1) ns = SC1;
+            else ns = RESET;
+        end
+        SC1: begin
+            if (arc_sc1_sc2) ns = SC2;
+            else ns = SC1;
+        end
+        SC2: begin
+            if (arc_sc2_sc1) ns = SC1;
+            else if (arc_sc2_halt) ns = HALT;
+            else ns = SC2;
+        end
+        HALT:begin
+            if (arc_halt_rst) ns = RESET;
+            else ns = HALT;
+        end
+    endcase
+end
+
+// Next State FF
+always_ff @(posedge CLOCK_50, posedge fsm_rst ) begin : PS_FF
+    if (fsm_rst) ps <= RESET; //On reset always start at RESET
+    else ps <= ns;         //present state becomes next state
+end
+
+// Implement counters to go thru all challenges
+logic [3:0] sc1_counter;
+logic [3:0] sc2_counter;
+
+always_ff @( posedge CLOCK_50, posedge fsm_rst ) begin : SC_Counters
+    if (fsm_rst) begin
+        sc1_counter <= '0;
+        sc2_counter <= '0;
+    end
+    else begin
+        if (arc_sc1_sc2) sc1_counter <= sc1_counter + 1'b1;
+        if (arc_sc2_sc1) sc2_counter <= sc2_counter + 1'b1;
+    end
+end
+
+// Assign the LED to show the current SC response
+assign LED = (ps == SC1) ? response1 :
+             (ps == SC2) ? response2 :
+             '0;
+
+// generate the PUF reset after each challenge
+assign sc1_rst = (ps == RESET) || (ps == SC2) || (ps == HALT);
+assign sc2_rst = (ps == RESET) || (ps == SC1) || (ps == HALT);
 
 endmodule
 
